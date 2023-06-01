@@ -1,124 +1,65 @@
-import os
-import zipfile
-from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
+from flask import Flask,jsonify,render_template
+from seleniumwire import webdriver
 from selenium.webdriver.common.by import By
-from flask import Flask,jsonify
-import time
+from selenium.webdriver.support.wait import WebDriverWait
+from selenium.webdriver.support import expected_conditions
+import seleniumwire.undetected_chromedriver as uc
 import random
 import json
 
-PROXY_HOST = "premium-residential.geonode.com"
-PROXY_PORT = "9000"
-PROXY_USER = "geonode_PICQT8eL6y-country-IN"
-PROXY_PASS = "433c7916-131a-4fbd-98f6-fdaa3311e3b2"
-
-URL = 'https://google.com/search?q=online+casino'
 domains = ["vocanospin.com","crcsix.in"]
+URL = 'http://www.google.com/search?q=online+casino'
 
 app = Flask(__name__)
 
-manifest_json = """
-{
-    "version": "1.0.0",
-    "manifest_version": 3,
-    "name": "Chrome Proxy",
-    "permissions": [
-        "proxy",
-        "tabs",
-        "unlimitedStorage",
-        "storage",
-        "webRequest",
-        "webRequestAuthProvider"
-        ],
-    "host_permissions": [
-        "<all_urls>"
-    ],
-    "background": {
-        "service_worker": "background.js"
-    },
-    "minimum_chrome_version":"22.0.0"
-}
-"""
-
-background_js = """
-var config = {
-        mode: "fixed_servers",
-        rules: {
-        singleProxy: {
-            scheme: "http",
-            host: "%s",
-            port: parseInt(%s)
-        },
-        bypassList: ["localhost"]
-        }
-    };
-
-chrome.proxy.settings.set({value: config, scope: "regular"}, function() {});
-
-function callbackFn(details) {
-    return {
-        authCredentials: {
-            username: "%s",
-            password: "%s"
-        }
-    };
+def driver_init():
+    options = {
+    'proxy':
+    {
+        'http':'http://geonode_PICQT8eL6y-country-IN:433c7916-131a-4fbd-98f6-fdaa3311e3b2@premium-residential.geonode.com:9000',
+        'https':'https://geonode_PICQT8eL6y-country-IN:433c7916-131a-4fbd-98f6-fdaa3311e3b2@premium-residential.geonode.com:9000',
+    }
 }
 
-chrome.webRequest.onAuthRequired.addListener(
-            callbackFn,
-            {urls: ["<all_urls>"]},
-            ['blocking']
-);
-""" % (PROXY_HOST, PROXY_PORT, PROXY_USER, PROXY_PASS)
-
-
-def get_chromedriver(use_proxy=False, user_agent=None):
-    path = os.path.dirname(os.path.abspath(__file__))
-    chrome_options = Options()
-
-    if use_proxy:
-        pluginfile = 'proxy_auth_plugin.zip'
-
-        with zipfile.ZipFile(pluginfile, 'w') as zp:
-            zp.writestr("manifest.json", manifest_json)
-            zp.writestr("background.js", background_js)
-        chrome_options.add_extension(pluginfile)
-    if user_agent:
-        chrome_options.add_argument('--user-agent=%s' % user_agent)
-    
-    chrome_options.add_argument('--headless=new')
+    chrome_options = uc.ChromeOptions()
+    chrome_options.add_argument('--headless')
     chrome_options.add_argument('--no-sandbox')
     chrome_options.add_argument('--disable-dev-shm-usage')
-    
-    driver = webdriver.Chrome(executable_path= r"/usr/bin/chromedriver/",options=chrome_options)
+    driver = webdriver.Chrome(seleniumwire_options=options,options=chrome_options)
     return driver
 
-@app.get("/")
-def main():
-    retry = 3
-    search_domain = ''
+@app.get('/')
+def google_search():
 
+    retry = 2
+    search_domain = ''
+    
     while retry>0:
         try:
-            driver,ip_dict = get_ip()            
-            driver.get(URL)
+            chrome,ip_dict = get_ip()
+            chrome.get(URL)
+            chrome.implicitly_wait(4)
             search_domain = random.choice(domains)
-            search_url = driver.find_element(By.XPATH,"//span[contains(text(),'"+search_domain+"')]")
+
+            wait = WebDriverWait(chrome, 30)
+            search_url = wait.until(expected_conditions.visibility_of_element_located((By.XPATH,"//span[contains(text(),'"+search_domain+"')]")))
             domain = search_url.text
-            print(f"Domain: {search_domain}")            
+            print(f"Domain: {search_domain}")
+            
             search_url.click()
-            driver.implicitly_wait(random.randint(3,7))
+            chrome.implicitly_wait(random.randint(2,5))
+            chrome.close()
             return {"domain":domain,"ip":ip_dict["ip"],"region":ip_dict["region"]}
         except:
             print(f'{search_domain} not found, retrying with different domain')
             retry -=1
 
-    return jsonify({"Error":"site does not responding,please try again"})
+    return jsonify({"Error":"site does not responding,please try again"}),404
 
+@app.route('/proxy_ip')
 def get_ip():
     ip_url = 'https://ipinfo.io/json'
-    chrome = get_chromedriver(use_proxy=True)
+    chrome = driver_init()
     chrome.get(ip_url)
     ip_json = chrome.find_element(By.TAG_NAME,"pre")
     ip = json.loads(ip_json.text)
@@ -126,5 +67,5 @@ def get_ip():
     print(f"IP: {ip['ip']} Region: {ip['region']}")
     return chrome,ip
 
-if __name__ == '__main__':
-    main()
+if __name__ == "__main__":
+    app.run(debug=True)
