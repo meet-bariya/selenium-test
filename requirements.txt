@@ -1,0 +1,4 @@
+flask
+selenium
+zipfile36
+json
